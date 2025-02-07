@@ -39,7 +39,36 @@ void putUInt16(std::vector<unsigned char>& buf, int offset, unsigned short value
 	buf[offset + 1] = p[1]; // 낮은 바이트
 }
 
+// 예외 응답 함수
+std::vector<unsigned char> exResponse(unsigned short transactionId, unsigned char unitId, unsigned char functionCode, unsigned char exceptionCode)
+{
+	std::vector<unsigned char> resp(9, 0);
 
+	// 트랜잭션 ID 상위, 하위 8비트 빅엔디언
+	resp[0] = (transactionId >> 8) & 0xFF; // 트랜잭션 ID 상위 8비트
+	resp[1] = transactionId & 0xFF; // 트랜잭션 ID 하위 8비트
+
+	// 프로토콜 ID TCP는 항상 0
+	resp[2] = 0;
+	resp[3] = 0;
+
+	// Length Unit ID 1바이트, PDU 2바이트
+	resp[4] = 0;
+	resp[5] = 3; // Length = unit id(1) pdu (2)
+
+	// 슬레이브 ID 식별
+	resp[6] = unitId;
+
+	// 예외응답
+	resp[7] = functionCode | 0x80;
+
+	// 오류 발생알림
+	resp[8] = exceptionCode;
+
+	return resp;
+}
+
+// 펑션코드별 처리 함수
 
 
 int main()
