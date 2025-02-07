@@ -69,7 +69,160 @@ std::vector<unsigned char> exResponse(unsigned short transactionId, unsigned cha
 }
 
 // 펑션코드별 처리 함수
+std::vector<unsigned char> readHoldingRegisters(unsigned short transactionId, unsigned char unitId, const std::vector<unsigned char>& request)
+{
+	// 요청 메시지 길이 검사, 12바이트 보다 짧으면 예외응답
+	if (request.size() < 12)
+	{
+		return exResponse(transactionId, unitId, 0x03, 0x03);
+	}
 
+	// PDU에서 시작주소 및 레지스터 수 읽기 인덱스 7부터 (인덱스 7은 펑션코드 0x03)
+	unsigned short startAddr = (request[8] << 8) | request[9]; // 두 바이트 합치기 16비트
+	unsigned short quantity = (request[10] << 8) | request[11]; // 읽을 레지스터 수
+	std::cout << "[0x03] Read Holding Registers - 시작주소 : " << startAddr << ", 수량 :" << quantity << std::endl;
+
+	// 주소 범위 및 수량 검사 
+	if (quantity < 1 || quantity > 125 || (startAddr + quantity) > REG_COUNT)
+	{
+		return exResponse(transactionId, unitId, 0x03, 0x02); // 레지스터수가 1보다 작거나, 125초과하면 안되고 레지스터 범위가 넘어서는지 확인 오류발생이면 illegal data address 오류 발생
+	}
+
+	int byteCount = quantity * 2;
+	int pduLength = 1 + 1 + byteCount;
+	int totalLength = 7 + pduLength;
+
+	std::vector<unsigned char> resp(totalLength, 0);
+
+	resp[0] = (transactionId >> 8) & 0xFF;
+	resp[1] = transactionId & 0xFF;
+	resp[2] = 0;
+	resp[3] = 0;
+	unsigned short lengthField = 1 + pduLength;
+	resp[4] = (lengthField >> 8) & 0xFF;
+	resp[5] = lengthField & 0xFF;
+	resp[6] = unitId;
+
+	resp[7] = 0x03;
+	resp[8] = byteCount;
+	
+	int idx = 9;
+	for (int i = 0; i < quantity; i++)
+	{
+		unsigned short regVal = holdingRegisters[startAddr + i];
+
+		resp[idx++] = (regVal >> 8) & 0xFF;
+		resp[idx++] = regVal & 0xFF;
+	}
+
+	return resp;
+	
+}
+
+std::vector<unsigned char> readInputRegisters(unsigned short transactionId, unsigned char unitId, const std::vector<unsigned char>& request)
+{
+	// 요청 메시지 길이 검사, 12바이트 보다 짧으면 예외응답
+	if (request.size() < 12)
+	{
+		return exResponse(transactionId, unitId, 0x04, 0x03);
+	}
+
+	// PDU에서 시작주소 및 레지스터 수 읽기 인덱스 7부터 (인덱스 7은 펑션코드 0x03)
+	unsigned short startAddr = (request[8] << 8) | request[9]; // 두 바이트 합치기 16비트
+	unsigned short quantity = (request[10] << 8) | request[11]; // 읽을 레지스터 수
+	std::cout << "[0x04] Read Input Registers - 시작주소 : " << startAddr << ", 수량 :" << quantity << std::endl;
+
+	// 주소 범위 및 수량 검사 
+	if (quantity < 1 || quantity > 125 || (startAddr + quantity) > REG_COUNT)
+	{
+		return exResponse(transactionId, unitId, 0x04, 0x02); // 레지스터수가 1보다 작거나, 125초과하면 안되고 레지스터 범위가 넘어서는지 확인 오류발생이면 illegal data address 오류 발생
+	}
+
+	int byteCount = quantity * 2;
+	int pduLength = 1 + 1 + byteCount;
+	int totalLength = 7 + pduLength;
+
+	std::vector<unsigned char> resp(totalLength, 0);
+
+	resp[0] = (transactionId >> 8) & 0xFF;
+	resp[1] = transactionId & 0xFF;
+	resp[2] = 0;
+	resp[3] = 0;
+	unsigned short lengthField = 1 + pduLength;
+	resp[4] = (lengthField >> 8) & 0xFF;
+	resp[5] = lengthField & 0xFF;
+	resp[6] = unitId;
+
+	resp[7] = 0x04;
+	resp[8] = byteCount;
+
+	int idx = 9;
+	for (int i = 0; i < quantity; i++)
+	{
+		unsigned short regVal = holdingRegisters[startAddr + i];
+
+		resp[idx++] = (regVal >> 8) & 0xFF;
+		resp[idx++] = regVal & 0xFF;
+	}
+
+	return resp;
+
+}
+
+std::vector<unsigned char> writeMulipleRegisters(unsigned short transactionId, unsigned char unitId, const std::vector<unsigned char>& request)
+{
+	// 요청 메시지 길이 검사, 13바이트 보다 짧으면 예외응답
+	if (request.size() < 13)
+	{
+		return exResponse(transactionId, unitId, 0x10, 0x03);
+	}
+
+	// PDU에서 시작주소 및 레지스터 수 읽기 인덱스 7부터 (인덱스 7은 펑션코드 0x03)
+	unsigned short startAddr = (request[8] << 8) | request[9]; // 두 바이트 합치기 16비트
+	unsigned short quantity = (request[10] << 8) | request[11]; // 읽을 레지스터 수
+	unsigned char byteCount = request[12]; // 실제 전송되는 데이터 바이트 수 
+	std::cout << "[0x10] Write Multiple Registers - 시작주소 : " << startAddr << ", 수량 :" << quantity << std::endl;
+
+	// 주소 범위 및 수량 검사 
+	if (quantity < 1 || quantity > 123 || (startAddr + quantity) > REG_COUNT || byteCount != quantity * 2)
+	{
+		return exResponse(transactionId, unitId, 0x10, 0x02); // 레지스터수가 1보다 작거나, 125초과하면 안되고 레지스터 범위가 넘어서는지 확인 오류발생이면 illegal data address 오류 발생
+	}
+
+	if (request.size() < 13 + quantity * 2)
+	{
+		return exResponse(transactionId, unitId, 0x10, 0x03);
+	}
+
+	int dataIdx = 13;
+	for (int i = 0; i < quantity; i++)
+	{
+		unsigned short value = (request[dataIdx] << 8) | request[dataIdx + 1];
+		holdingRegisters[startAddr + i] = value;
+		dataIdx += 2;
+	}
+
+	int totalLength = 7 + 1 + 2 + 2; // 12바이트
+
+	std::vector<unsigned char> resp(totalLength, 0);
+
+	resp[0] = (transactionId >> 8) & 0xFF;
+	resp[1] = transactionId & 0xFF;
+	resp[2] = 0;
+	resp[3] = 0;
+	resp[4] = 0;
+	resp[5] = 6;
+	resp[6] = unitId;
+
+	resp[7] = 0x10;
+	resp[8] = (startAddr >> 8) & 0xFF;
+	resp[9] = startAddr & 0xFF;
+	resp[10] = (quantity >> 8) & 0xFF;
+	resp[11] = quantity & 0xFF;
+
+	return resp;
+
+}
 
 int main()
 {
