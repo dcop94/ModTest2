@@ -224,13 +224,59 @@ std::vector<unsigned char> writeMulipleRegisters(unsigned short transactionId, u
 
 }
 
+std::vector<unsigned char> handleRequest(const std::vector<unsigned char>& request)
+{
+	if (request.size() < 8)
+	{
+		return std::vector<unsigned char>(); // 짧은 요청 무시
+	}
+
+	unsigned short transactionId = (request[0] << 8) | request[1];
+	unsigned short protocolId = (request[2] << 8) | request[3];
+	unsigned short length = (request[4] << 8) | request[5];
+	unsigned char unitId = request[6];
+
+	if (protocolId != 0)
+	{
+		return std::vector<unsigned char>();
+	}
+
+	if (request.size() < 7 + (length - 1))
+	{
+		return std::vector<unsigned char>();
+	}
+
+	unsigned char functionCode = request[7];
+	std::vector<unsigned char> response;
+
+	switch (functionCode)
+	{
+	case 0x03:
+		response = readHoldingRegisters(transactionId, unitId, request);
+		break;
+
+	case 0x04:
+		response = readInputRegisters(transactionId, unitId, request);
+		break;
+
+	case 0x10:
+		response = writeMulipleRegisters(transactionId, unitId, request);
+		break;
+
+	default:
+		response = exResponse(transactionId, unitId, functionCode, 0x01);
+		break;
+	}
+
+	return response;
+}
+
 int main()
 {
+	initRegisters();
+
 	WSADATA wsaData;
 	SOCKET serverSocket, clientSocket;
-
-	// 랜덤 시드
-	srand(static_cast<unsigned int>(time(nullptr)));
 
 	// Winsock 초기화
 	if (WSAStartup(MAKEWORD(2, 2), &wsaData))
@@ -292,21 +338,33 @@ int main()
 
 		std::cout << "Client Connected" << std::endl;
 
-		// Modbus TCP 랜덤값 생성
-		const int modLen = 10;
-		unsigned char txData[modLen];
-
-		for (int i = 0; i < modLen; i++)
+		//MBAP 헤더 수신
+		unsigned char mbap[7];
+		int bytesRecv = recv(clientSocket, reinterpret_cast<char*>(mbap), 7, 0);
+		if (bytesRecv != 7)
 		{
-			txData[i] = static_cast<unsigned char>(rand() & 0xFF);
+			std::cerr << "MBAP Header failed " << bytesRecv << "byte" << std::endl;
+			closesocket(clientSocket);
+			continue;
 		}
 
-		std::cout << "random bytes (hex) : ";
-		for (int i = 0; i < modLen; i++)
+		//PDU 길이 설정
+		unsigned short lengthField = (mbap[4] << 8) | mbap[5];
+
+		int rem = lengthField - 1;
+
+		std::vector<unsigned char> pdu(rem, 0);
+		if (rem > 0)
 		{
-			printf("%02X", txData[i]);
+			bytesRecv = recv(clientSocket, reinterpret_cast<char*>(&pdu[0]), rem, 0);
+
+			if (bytesRecv != rem)
+			{
+				std::cerr << "PDU failed" << bytesRecv << "byte" << std::endl;
+				closesocket(clientSocket);
+				continue;
+			}
 		}
-		std::cout << std::endl;
 
 		// 클라이언트 전송
 		int sendBytes = send(clientSocket, reinterpret_cast<const char*>(txData), modLen, 0);
