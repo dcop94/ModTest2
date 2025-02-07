@@ -3,6 +3,7 @@
 #include <iostream>
 #include <ctime>
 #include <cstdlib>
+#include <vector>
 
 #pragma comment(lib, "ws2_32.lib")
 
@@ -24,7 +25,19 @@ void initRegisters()
 	}
 }
 
+// 빅엔디언 변환
+void putUInt16(std::vector<unsigned char>& buf, int offset, unsigned short value)
+{
+	// value를 htons 네트워크 맞게 빅엔디언 변환
+	unsigned short netValue = htons(value);
+	
+	// netValue 메모리 주소를 포인터로 두 바이트 복사 (형 변환 bit수맞게)
+	unsigned char* p = reinterpret_cast<unsigned char*>(&netValue);
 
+	// buf
+	buf[offset] = p[0]; // 높은 바이트
+	buf[offset + 1] = p[1]; // 낮은 바이트
+}
 
 
 
