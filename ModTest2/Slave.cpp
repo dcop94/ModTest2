@@ -6,7 +6,28 @@
 
 #pragma comment(lib, "ws2_32.lib")
 
-#define PORT 7766
+#define PORT 502
+#define REG_COUNT 125 //레지스터 개수
+
+// 레지스터 배열
+unsigned short holdingRegisters[REG_COUNT];
+unsigned short inputRegisters[REG_COUNT];
+
+
+// 레지스터 초기화
+void initRegisters()
+{
+	for (int i = 0; i < REG_COUNT; i++)
+	{
+		holdingRegisters[i] = 0;
+		inputRegisters[i] = 123;
+	}
+}
+
+
+
+
+
 
 int main()
 {
@@ -32,7 +53,7 @@ int main()
 		WSACleanup();
 		return 1;
 	}
-	
+
 	// 소켓 주소 설정
 	SOCKADDR_IN serverAddr;
 	serverAddr.sin_family = AF_INET;
@@ -67,7 +88,7 @@ int main()
 
 		// 클라이언트 연결 Accept
 		SOCKET clientSocket = accept(serverSocket, (SOCKADDR*)&clientAddr, &addrLen);
-		
+
 		if (clientSocket == INVALID_SOCKET)
 		{
 			std::cerr << "Accept failed : " << WSAGetLastError() << std::endl;
@@ -114,5 +135,5 @@ int main()
 	WSACleanup();
 	return 0;
 
-	
+
 }
