@@ -31,10 +31,10 @@ void putUInt16(std::vector<unsigned char>& buf, int offset, unsigned short value
 	// value를 htons 네트워크 맞게 빅엔디언 변환
 	unsigned short netValue = htons(value);
 	
-	// netValue 메모리 주소를 포인터로 두 바이트 복사 (형 변환 bit수맞게)
+	// netValue 주소를 unsigned char 포인터로 변환하면 두 바이트 접근
 	unsigned char* p = reinterpret_cast<unsigned char*>(&netValue);
 
-	// buf
+	// 변환된 값 buf에 복사
 	buf[offset] = p[0]; // 높은 바이트
 	buf[offset + 1] = p[1]; // 낮은 바이트
 }
@@ -273,6 +273,7 @@ std::vector<unsigned char> handleRequest(const std::vector<unsigned char>& reque
 
 int main()
 {
+	// 레지스터 초기화
 	initRegisters();
 
 	WSADATA wsaData;
@@ -353,6 +354,7 @@ int main()
 
 		int rem = lengthField - 1;
 
+		// PDU 수신
 		std::vector<unsigned char> pdu(rem, 0);
 		if (rem > 0)
 		{
@@ -366,27 +368,44 @@ int main()
 			}
 		}
 
-		// 클라이언트 전송
-		int sendBytes = send(clientSocket, reinterpret_cast<const char*>(txData), modLen, 0);
+		// MBAP 헤더 및 PDU를 하나의 요청 백터로 결합
+		std::vector<unsigned char> request;
+		request.insert(request.end(), mbap, mbap + 7);
+		request.insert(request.end(), pdu.begin(), pdu.end());
 
-		if (sendBytes == SOCKET_ERROR)
+		std::cout << "수신 요청 : ";
+		for (auto b : request)
 		{
-			std::cerr << "Send failed" << WSAGetLastError() << std::endl;
+			printf("%02X", b);
 		}
-		else
+
+		std::cout << std::endl;
+
+		// 클라이언트 전송
+		std::vector<unsigned char> response = handleRequest(request);
+		if (!response.empty())
 		{
-			std::cout << "Send " << sendBytes << " bytes to client" << std::endl;
+			int sendBytes = send(clientSocket, reinterpret_cast<const char*>(&response[0]), response.size(), 0);
+
+			if (sendBytes == SOCKET_ERROR)
+			{
+				std::cerr << "Send failed" << WSAGetLastError() << std::endl;
+			}
+			else
+			{
+				std::cout << "Send " << sendBytes << " bytes to client" << std::endl;
+			}
+
+			
 		}
 
 		closesocket(clientSocket);
 
 	}
 
-
 	// 서버 소켓 종료
 	closesocket(serverSocket);
 	WSACleanup();
 	return 0;
-
 
 }
