@@ -18,7 +18,7 @@ unsigned short inputRegisters[REG_COUNT];
 // 레지스터 초기화
 void initRegisters()
 {
-	for (int i = 0; i < REG_COUNT; i++)
+	for (int i = 0; i < REG_COUNT; i++)                                                                                                                                                                                                                                                                                                                                                         
 	{
 		holdingRegisters[i] = 0;
 		inputRegisters[i] = 123;
