@@ -4,16 +4,19 @@
 #include <ctime>
 #include <cstdlib>
 #include <vector>
+#include <thread>
+#include <mutex>
 
 #pragma comment(lib, "ws2_32.lib")
 
 #define PORT 502
-#define REG_COUNT 125 //레지스터 개수
+#define REG_COUNT 125 //레지스터 개수                                                                                                                    v  
 
 // 레지스터 배열
 unsigned short holdingRegisters[REG_COUNT];
 unsigned short inputRegisters[REG_COUNT];
 
+std::mutex regMutex;
 
 // 레지스터 초기화
 void initRegisters()
@@ -107,12 +110,17 @@ std::vector<unsigned char> readHoldingRegisters(unsigned short transactionId, un
 	resp[8] = byteCount;
 	
 	int idx = 9;
-	for (int i = 0; i < quantity; i++)
 	{
-		unsigned short regVal = holdingRegisters[startAddr + i];
+		std::lock_guard<std::mutex> lock(regMutex);
 
-		resp[idx++] = (regVal >> 8) & 0xFF;
-		resp[idx++] = regVal & 0xFF;
+		for (int i = 0; i < quantity; i++)
+		{
+			unsigned short regVal = holdingRegisters[startAddr + i];
+
+			resp[idx++] = (regVal >> 8) & 0xFF;
+			resp[idx++] = regVal & 0xFF;
+		}
+	
 	}
 
 	return resp;
@@ -157,13 +165,18 @@ std::vector<unsigned char> readInputRegisters(unsigned short transactionId, unsi
 	resp[8] = byteCount;
 
 	int idx = 9;
-	for (int i = 0; i < quantity; i++)
 	{
-		unsigned short regVal = holdingRegisters[startAddr + i];
+		std::lock_guard<std::mutex> lock(regMutex);
 
-		resp[idx++] = (regVal >> 8) & 0xFF;
-		resp[idx++] = regVal & 0xFF;
+		for (int i = 0; i < quantity; i++)
+		{
+			unsigned short regVal = holdingRegisters[startAddr + i];
+
+			resp[idx++] = (regVal >> 8) & 0xFF;
+			resp[idx++] = regVal & 0xFF;
+		}
 	}
+	
 
 	return resp;
 
@@ -195,13 +208,17 @@ std::vector<unsigned char> writeMulipleRegisters(unsigned short transactionId, u
 	}
 
 	int dataIdx = 13;
-	for (int i = 0; i < quantity; i++)
 	{
-		unsigned short value = (request[dataIdx] << 8) | request[dataIdx + 1];
-		holdingRegisters[startAddr + i] = value;
-		dataIdx += 2;
-	}
+		std::lock_guard<std::mutex> lock(regMutex);
 
+		for (int i = 0; i < quantity; i++)
+		{
+			unsigned short value = (request[dataIdx] << 8) | request[dataIdx + 1];
+			holdingRegisters[startAddr + i] = value;
+			dataIdx += 2;
+		}
+	}
+	
 	int totalLength = 7 + 1 + 2 + 2; // 12바이트
 
 	std::vector<unsigned char> resp(totalLength, 0);
@@ -271,100 +288,33 @@ std::vector<unsigned char> handleRequest(const std::vector<unsigned char>& reque
 	return response;
 }
 
-int main()
+// 클라이언트 요청 처리 핸들
+void handleClient(SOCKET clientSocket)
 {
-	// 레지스터 초기화
-	initRegisters();
-
-	WSADATA wsaData;
-	SOCKET serverSocket, clientSocket;
-
-	// Winsock 초기화
-	if (WSAStartup(MAKEWORD(2, 2), &wsaData))
-	{
-		std::cerr << "Intialize Winsock Error : " << WSAGetLastError() << std::endl;
-		return 1;
-	}
-
-	// 서버 소켓 생성
-	serverSocket = socket(AF_INET, SOCK_STREAM, 0);
-
-	if (serverSocket == INVALID_SOCKET)
-	{
-		std::cerr << "Socket Create failed : " << WSAGetLastError() << std::endl;
-		WSACleanup();
-		return 1;
-	}
-
-	// 소켓 주소 설정
-	SOCKADDR_IN serverAddr;
-	serverAddr.sin_family = AF_INET;
-	serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-	serverAddr.sin_port = htons(PORT);
-
-	// 바인드
-	if (bind(serverSocket, (SOCKADDR*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR)
-	{
-		std::cout << "Bind failed " << WSAGetLastError() << std::endl;
-		closesocket(serverSocket);
-		WSACleanup();
-		return 1;
-	}
-
-	// 리슨
-	if (listen(serverSocket, 5) == SOCKET_ERROR)
-	{
-		std::cerr << "Listen failed" << WSAGetLastError() << std::endl;
-		closesocket(serverSocket);
-		WSACleanup();
-		return 1;
-	}
-
-	std::cout << "[SERVER] Listening port " << std::endl;
-
-	// 무한루프 클라이언트 연결 대기
 	while (true)
 	{
-		SOCKADDR_IN clientAddr;
-		int addrLen = sizeof(SOCKADDR_IN);
-
-		// 클라이언트 연결 Accept
-		SOCKET clientSocket = accept(serverSocket, (SOCKADDR*)&clientAddr, &addrLen);
-
-		if (clientSocket == INVALID_SOCKET)
-		{
-			std::cerr << "Accept failed : " << WSAGetLastError() << std::endl;
-			continue;
-		}
-
-		std::cout << "Client Connected" << std::endl;
-
-		//MBAP 헤더 수신
 		unsigned char mbap[7];
 		int bytesRecv = recv(clientSocket, reinterpret_cast<char*>(mbap), 7, 0);
+
 		if (bytesRecv != 7)
 		{
-			std::cerr << "MBAP Header failed " << bytesRecv << "byte" << std::endl;
-			closesocket(clientSocket);
-			continue;
+			std::cerr << "MBAP 헤더 수신 실패 :" << bytesRecv << " 바이트 수신 " << std::endl;
+			break;
 		}
 
-		//PDU 길이 설정
 		unsigned short lengthField = (mbap[4] << 8) | mbap[5];
-
 		int rem = lengthField - 1;
 
-		// PDU 수신
 		std::vector<unsigned char> pdu(rem, 0);
+
 		if (rem > 0)
 		{
 			bytesRecv = recv(clientSocket, reinterpret_cast<char*>(&pdu[0]), rem, 0);
 
 			if (bytesRecv != rem)
 			{
-				std::cerr << "PDU failed" << bytesRecv << "byte" << std::endl;
-				closesocket(clientSocket);
-				continue;
+				std::cerr << "PDU 수신 실패: " << bytesRecv << "바이트 수신" << std::endl;
+				break;
 			}
 		}
 
@@ -381,26 +331,146 @@ int main()
 
 		std::cout << std::endl;
 
-		// 클라이언트 전송
-		std::vector<unsigned char> response = handleRequest(request);
-		if (!response.empty())
+		// 읽기요청 - 지속적으로 업데이트된 값 전송
+		unsigned char functionCode = request[7];
+
+		if (functionCode == 0x03 || functionCode == 0x04)
 		{
-			int sendBytes = send(clientSocket, reinterpret_cast<const char*>(&response[0]), response.size(), 0);
-
-			if (sendBytes == SOCKET_ERROR)
+			while (true)
 			{
-				std::cerr << "Send failed" << WSAGetLastError() << std::endl;
-			}
-			else
-			{
-				std::cout << "Send " << sendBytes << " bytes to client" << std::endl;
-			}
+				std::vector<unsigned char> response = handleRequest(request);
 
+				int sendBytes = send(clientSocket, reinterpret_cast<const char*>(&response[0]), response.size(), 0);
+
+				if (sendBytes == SOCKET_ERROR)
+				{
+					std::cerr << "전송 실패, 오류 :" << WSAGetLastError() << std::endl;
+					break;
+				}
+				else
+				{
+					std::cout << "클라이언트에 " << sendBytes << " 바이트 전송" << std::endl;
+
+					Sleep(1000);
+				}
 			
+			}
+			break; // 스트리밍모드 종료 클라이언트 연결 종료
 		}
 
-		closesocket(clientSocket);
+		// 쓰기요청 등 단일 응답
+		else 
+		{
+			std::vector<unsigned char> response = handleRequest(request);
 
+			if (!response.empty())
+			{
+				int sendBytes = send(clientSocket, reinterpret_cast<const char*>(&response[0]), response.size(), 0);
+
+				if (sendBytes == SOCKET_ERROR)
+				{
+					std::cerr << "전송 실패, 오류 :" << WSAGetLastError() << std::endl;
+					break;
+				}
+				else
+				{
+					std::cout << "클라이언트에 " << sendBytes << " 바이트 전송" << std::endl;
+
+				}
+			}
+		}
+	}
+	closesocket(clientSocket);
+	std::cout << "클라이언트 연결종료" << std::endl;
+}
+
+int main()
+{
+	// 레지스터 초기화
+	initRegisters();
+
+	// 별도 스레드에서 레지스터값 주기적 갱신 (실 계측기 역할)
+	std::thread updater([]()
+		{
+			while (true)
+			{
+				{
+					std::lock_guard<std::mutex> lock(regMutex);
+
+					for (int i = 0; i < REG_COUNT; i++)
+					{
+						holdingRegisters[i] = rand() % 0XFFFF;
+						inputRegisters[i] = 100 + (rand() % 50);
+					}
+				}
+				Sleep(1000);
+			}
+		});
+	updater.detach();
+
+	WSADATA wsaData;
+	SOCKET serverSocket, clientSocket;
+
+	// Winsock 초기화
+	if (WSAStartup(MAKEWORD(2, 2), &wsaData))
+	{
+		std::cerr << "winsock 초기화 실패 : " << WSAGetLastError() << std::endl;
+		return 1;
+	}
+
+	// 서버 소켓 생성
+	serverSocket = socket(AF_INET, SOCK_STREAM, 0);
+
+	if (serverSocket == INVALID_SOCKET)
+	{
+		std::cerr << "서버 소켓 생성 실패 : " << WSAGetLastError() << std::endl;
+		WSACleanup();
+		return 1;
+	}
+
+	// 소켓 주소 설정
+	SOCKADDR_IN serverAddr;
+	serverAddr.sin_family = AF_INET;
+	serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+	serverAddr.sin_port = htons(PORT);
+
+	// 바인드
+	if (bind(serverSocket, (SOCKADDR*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR)
+	{
+		std::cout << "바인드 실패 : " << WSAGetLastError() << std::endl;
+		closesocket(serverSocket);
+		WSACleanup();
+		return 1;
+	}
+
+	// 리슨
+	if (listen(serverSocket, 5) == SOCKET_ERROR)
+	{
+		std::cerr << "리스닝 실패 :" << WSAGetLastError() << std::endl;
+		closesocket(serverSocket);
+		WSACleanup();
+		return 1;
+	}
+
+	std::cout << PORT << "포트에서 서버 리스닝중 " << std::endl;
+
+	// 연결 대기
+	while (true)
+	{
+		// 클라이언트 연결 Accept
+		SOCKET clientSocket = accept(serverSocket, NULL, NULL);
+
+		if (clientSocket == INVALID_SOCKET)
+		{
+			std::cerr << "수락 실패 : " << WSAGetLastError() << std::endl;
+			continue;
+		}
+
+		std::cout << "클라이언트 연결" << std::endl;
+
+		// 클라이언트 별 스레드 시작
+		std::thread clientThread(handleClient, clientSocket);
+		clientThread.detach(); // 스레드 독립적 실행
 	}
 
 	// 서버 소켓 종료

@@ -8,8 +8,6 @@
 #include <string>
 #include <limits>
 
-#define _WINSOCK_DEPRECATED_NO_WARNINGS
-
 #pragma comment(lib, "ws2_32.lib")
 
 // 16비트 빅엔디언으로 변환 후 버퍼 저장
@@ -248,20 +246,50 @@ int main()
 			break;
 		}
 
-		// 응답  수신
-		char recvBuffer[512] = { 0 };
-		int recvResult = recv(sock, recvBuffer, sizeof(recvBuffer), 0);
-
-		if (recvResult > 0)
+		// 읽기 요청 시 스트리밍 모드 전환
+		if (pdu[0] == 0x03 || pdu[0] == 0x04)
 		{
-			std::vector<unsigned char> responseVec(recvBuffer, recvBuffer + recvResult);
-			std::cout << "응답 : " << byteToHex(responseVec) << std::endl;
+			std::cout << "스트리밍 모드 - 계속해서 계측 값을 받습니다. 종료 Ctrl+C" << std::endl;
+
+			while (true)
+			{
+				// 응답  수신
+				char recvBuffer[512] = { 0 };
+				int recvResult = recv(sock, recvBuffer, sizeof(recvBuffer), 0);
+
+				if (recvResult > 0)
+				{
+					std::vector<unsigned char> responseVec(recvBuffer, recvBuffer + recvResult);
+					std::cout << "응답 : " << byteToHex(responseVec) << std::endl;
+				}
+				else
+				{
+					std::cerr << "응답 실패 혹은 연결 끊김" << std::endl;
+					goto exit_loop;
+				}
+			}
+		exit_loop:;
+
 		}
+		// 쓰기 요청 등 단일 응답 
 		else
 		{
-			std::cerr << "응답 실패 혹은 연결 끊김" << std::endl;
-			break;
+			// 응답  수신
+			char recvBuffer[512] = { 0 };
+			int recvResult = recv(sock, recvBuffer, sizeof(recvBuffer), 0);
+
+			if (recvResult > 0)
+			{
+				std::vector<unsigned char> responseVec(recvBuffer, recvBuffer + recvResult);
+				std::cout << "응답 : " << byteToHex(responseVec) << std::endl;
+			}
+			else
+			{
+				std::cerr << "응답 실패 혹은 연결 끊김" << std::endl;
+				break;
+			}
 		}
+		
 
 		transactionId++;
 
