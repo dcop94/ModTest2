@@ -7,6 +7,7 @@
 #include <iomanip>
 #include <string>
 #include <limits>
+#include <conio.h>
 
 #pragma comment(lib, "ws2_32.lib")
 
@@ -24,7 +25,7 @@ std::vector<unsigned char> buildMBAPHeader(unsigned short transactionId, unsigne
 {
 	unsigned short lengthField = 1 + pduLength;
 	std::vector<unsigned char> header(7, 0);
-	
+
 	header[0] = (transactionId >> 8) & 0xFF;
 	header[1] = transactionId & 0xFF;
 	header[2] = 0;
@@ -49,7 +50,7 @@ std::string byteToHex(const std::vector<unsigned char>& vec)
 
 int main()
 {
-	// Winsock 초기화
+	// Winsock 초기화   
 	WSADATA wsadata;
 	if (WSAStartup(MAKEWORD(2, 2), &wsadata) != 0)
 	{
@@ -227,7 +228,7 @@ int main()
 		// MBAP 헤더생성
 		std::vector<unsigned char> mbap = buildMBAPHeader(transactionId, (unsigned short)pdu.size(), (unsigned char)slaveId);
 
-		
+
 
 		// 전체 요청 메시지 = MBAP 헤더 + PDU
 		std::vector<unsigned char> requestMsg;
@@ -237,46 +238,23 @@ int main()
 		// 요청메시지 헥사로
 		std::cout << "Request :" << byteToHex(requestMsg) << std::endl;
 
-		// 요청 전송
-		int sendResult = send(sock, reinterpret_cast<const char*>(&requestMsg[0]), static_cast<int>(requestMsg.size()), 0);
 
-		if (sendResult == SOCKET_ERROR)
+		const int POLL_INTERVAL_MS = 500;
+
+		while (true)
 		{
-			std::cerr << "수신 오류" << std::endl;
-			break;
-		}
+			// 요청 전송
+			int sendResult = send(sock, reinterpret_cast<const char*>(requestMsg.data()), static_cast<int>(requestMsg.size()), 0);
 
-		// 읽기 요청 시 스트리밍 모드 전환
-		if (pdu[0] == 0x03 || pdu[0] == 0x04)
-		{
-			std::cout << "스트리밍 모드 - 계속해서 계측 값을 받습니다. 종료 Ctrl+C" << std::endl;
-
-			while (true)
+			if (sendResult == SOCKET_ERROR)
 			{
-				// 응답  수신
-				char recvBuffer[512] = { 0 };
-				int recvResult = recv(sock, recvBuffer, sizeof(recvBuffer), 0);
-
-				if (recvResult > 0)
-				{
-					std::vector<unsigned char> responseVec(recvBuffer, recvBuffer + recvResult);
-					std::cout << "응답 : " << byteToHex(responseVec) << std::endl;
-				}
-				else
-				{
-					std::cerr << "응답 실패 혹은 연결 끊김" << std::endl;
-					goto exit_loop;
-				}
+				std::cerr << "수신 오류" << std::endl;
+				goto outer_loop;
 			}
-		exit_loop:;
 
-		}
-		// 쓰기 요청 등 단일 응답 
-		else
-		{
 			// 응답  수신
 			char recvBuffer[512] = { 0 };
-			int recvResult = recv(sock, recvBuffer, sizeof(recvBuffer), 0);
+			int recvResult = recv(sock, recvBuffer, static_cast<int>(sizeof(recvBuffer)), 0);
 
 			if (recvResult > 0)
 			{
@@ -286,16 +264,35 @@ int main()
 			else
 			{
 				std::cerr << "응답 실패 혹은 연결 끊김" << std::endl;
-				break;
+				goto outer_loop;
+			}
+
+			transactionId++;
+
+			mbap = buildMBAPHeader(transactionId, static_cast<unsigned short> (pdu.size()), static_cast<unsigned char>(slaveId));
+
+			requestMsg.clear();
+			requestMsg.insert(requestMsg.end(), mbap.begin(), mbap.end());
+			requestMsg.insert(requestMsg.end(), pdu.begin(), pdu.end());
+
+			Sleep(POLL_INTERVAL_MS);
+
+			if (_kbhit())
+			{
+				char c = _getch();
+
+				if (c == 'q' || c == 'Q')
+				{
+					std::cout << "폴링 모드 끝" << std::endl;
+					break;
+				}
 			}
 		}
-		
 
-		transactionId++;
-
-		// 입력버퍼 정리 
+	outer_loop:
 		std::cin.ignore((std::numeric_limits<std::streamsize>::max)(), '\n');
-			
+
+
 	}
 
 	closesocket(sock);

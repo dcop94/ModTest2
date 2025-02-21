@@ -336,9 +336,15 @@ void handleClient(SOCKET clientSocket)
 
 		if (functionCode == 0x03 || functionCode == 0x04)
 		{
+			unsigned short origTransId = (request[0] << 8) | request[1];
+			unsigned short currentTransId = origTransId;
+
 			while (true)
 			{
 				std::vector<unsigned char> response = handleRequest(request);
+
+				response[0] = (currentTransId >> 8) & 0xFF;
+				response[1] = currentTransId & 0xFF;;
 
 				int sendBytes = send(clientSocket, reinterpret_cast<const char*>(&response[0]), response.size(), 0);
 
@@ -350,7 +356,7 @@ void handleClient(SOCKET clientSocket)
 				else
 				{
 					std::cout << "클라이언트에 " << sendBytes << " 바이트 전송" << std::endl;
-
+					currentTransId ++;
 					Sleep(1000);
 				}
 			
